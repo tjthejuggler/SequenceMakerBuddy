@@ -35,6 +35,7 @@ import com.example.sequencemakerbuddy.player.SequencePlayerViewModel
 
 /**
  * Main player screen with 3 simulated balls and playback controls.
+ * The UI is intentionally greyscale so the ball colors stand out.
  */
 @Composable
 fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifier) {
@@ -57,14 +58,14 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF1A1A2E))
+            .background(MaterialTheme.colorScheme.background)
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Title
         Text(
             text = "Sequence Maker Buddy",
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onBackground,
             fontSize = 22.sp,
             fontWeight = FontWeight.Bold
         )
@@ -74,7 +75,7 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
         // Project name
         Text(
             text = viewModel.projectName.value,
-            color = Color(0xFFAAAAAA),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 14.sp
         )
 
@@ -87,7 +88,9 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
         ) {
             OutlinedButton(
                 onClick = { sequencePicker.launch(arrayOf("application/json", "application/octet-stream", "*/*")) },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00D4FF))
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onBackground
+                )
             ) {
                 Text(
                     text = if (viewModel.sequenceLoaded.value) "✓ Sequence" else "Load Sequence"
@@ -96,7 +99,9 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
 
             OutlinedButton(
                 onClick = { audioPicker.launch(arrayOf("audio/*")) },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00D4FF))
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onBackground
+                )
             ) {
                 Text(
                     text = if (viewModel.audioLoaded.value) "✓ Audio" else "Load Audio"
@@ -106,7 +111,7 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // --- 3 Simulated Balls ---
+        // --- 3 Simulated Balls (these stay in COLOR) ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -134,7 +139,7 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
         val millis = (timeMs % 1000) / 10
         Text(
             text = String.format("%d:%02d.%02d", seconds / 60, seconds % 60, millis),
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onBackground,
             fontSize = 36.sp,
             fontWeight = FontWeight.Light,
             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
@@ -150,7 +155,8 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
             Button(
                 onClick = { viewModel.stop() },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF444466)
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 enabled = viewModel.sequenceLoaded.value
             ) {
@@ -161,7 +167,8 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
                 Button(
                     onClick = { viewModel.pause() },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFFF6B35)
+                        containerColor = MaterialTheme.colorScheme.onSurface,
+                        contentColor = MaterialTheme.colorScheme.surface
                     )
                 ) {
                     Text("⏸ Pause", fontSize = 16.sp)
@@ -170,7 +177,8 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
                 Button(
                     onClick = { viewModel.play() },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF00C853)
+                        containerColor = MaterialTheme.colorScheme.onBackground,
+                        contentColor = MaterialTheme.colorScheme.background
                     ),
                     enabled = viewModel.sequenceLoaded.value
                 ) {
@@ -184,7 +192,7 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
         // Status info
         Text(
             text = "Load a .smbuddy file and audio to start",
-            color = Color(0xFF666688),
+            color = MaterialTheme.colorScheme.outline,
             fontSize = 12.sp,
             textAlign = TextAlign.Center
         )
@@ -193,6 +201,7 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
 
 /**
  * A single simulated ball rendered as a colored circle with a glow effect.
+ * This is the ONE element that stays in full color.
  */
 @Composable
 fun BallCircle(color: Color, label: String) {
@@ -214,7 +223,7 @@ fun BallCircle(color: Color, label: String) {
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = label,
-            color = Color(0xFFAAAAAA),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 12.sp
         )
     }

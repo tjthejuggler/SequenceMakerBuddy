@@ -2,7 +2,7 @@
 
 **Android companion app for [Sequence Maker](../Projects/ltx_guru/sequence_maker)** — play LED juggling ball color sequences synced with music on your phone.
 
-> Last updated: 2026-03-25
+> Last updated: 2026-03-25T17:47-06:00
 
 ## What It Does
 
@@ -90,6 +90,12 @@ exporter.export_project("output.smbuddy")
 4. Tap **Load Sequence** → pick the `.smbuddy` file
 5. Tap **Load Audio** → pick the audio file (MP3, WAV, etc.)
 6. Tap **▶ Play** — balls light up in sync with the music!
+
+## UI Design
+
+The app uses a **greyscale** color scheme — nearly everything is black and white. The only elements rendered in full color are the **3 simulated ball circles**, since seeing their colors is the entire point of the app. This design choice ensures the ball colors pop and are easy to read at a glance.
+
+*(Greyscale theme applied 2026-03-25T17:47-06:00)*
 
 ## Tech Stack
 
