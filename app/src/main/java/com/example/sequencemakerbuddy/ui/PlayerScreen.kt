@@ -15,12 +15,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,27 +36,57 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.sequencemakerbuddy.player.SequencePlayerViewModel
+import com.example.sequencemakerbuddy.settings.SettingsManager
 
 /**
  * Main player screen with 3 simulated balls and playback controls.
  * The UI is intentionally greyscale so the ball colors stand out.
+ *
+ * Instead of separate import buttons, uses a settings-configured folder
+ * and a file browser popup to select .smbuddy bundles.
  */
 @Composable
 fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
 
-    // File picker for .smbuddy sequence files
-    val sequencePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let { viewModel.loadSequence(context, it) }
+    // Initialize settings on first composition
+    LaunchedEffect(Unit) {
+        viewModel.initSettings(context)
+        if (viewModel.folderConfigured.value) {
+            viewModel.refreshFileList(context)
+        }
     }
 
-    // File picker for audio files
-    val audioPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
+    // Folder picker for settings
+    val folderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
-        uri?.let { viewModel.loadAudio(context, it) }
+        uri?.let {
+            viewModel.setFolder(context, it)
+            viewModel.showSettings.value = false
+        }
+    }
+
+    // Settings dialog
+    if (viewModel.showSettings.value) {
+        SettingsDialog(
+            folderConfigured = viewModel.folderConfigured.value,
+            currentFolder = SettingsManager(context).getSmbuddyFolderUri(),
+            onPickFolder = { folderPicker.launch(null) },
+            onDismiss = { viewModel.showSettings.value = false }
+        )
+    }
+
+    // File browser dialog
+    if (viewModel.showFileBrowser.value) {
+        FileBrowserDialog(
+            files = viewModel.smbuddyFiles.value,
+            onFileSelected = { entry ->
+                viewModel.showFileBrowser.value = false
+                viewModel.loadBundle(context, entry.uri)
+            },
+            onDismiss = { viewModel.showFileBrowser.value = false }
+        )
     }
 
     Column(
@@ -62,15 +96,26 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Title
-        Text(
-            text = "Sequence Maker Buddy",
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
+        // Top bar: Title + Settings gear
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Sequence Maker Buddy",
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
+            IconButton(onClick = { viewModel.showSettings.value = true }) {
+                Text(
+                    text = "⚙",
+                    fontSize = 24.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
 
         // Project name
         Text(
@@ -79,34 +124,25 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
             fontSize = 14.sp
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // --- Load buttons ---
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+        // --- Open Sequence button ---
+        OutlinedButton(
+            onClick = {
+                if (viewModel.folderConfigured.value) {
+                    viewModel.refreshFileList(context)
+                    viewModel.showFileBrowser.value = true
+                } else {
+                    viewModel.showSettings.value = true
+                }
+            },
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.onBackground
+            )
         ) {
-            OutlinedButton(
-                onClick = { sequencePicker.launch(arrayOf("application/json", "application/octet-stream", "*/*")) },
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.onBackground
-                )
-            ) {
-                Text(
-                    text = if (viewModel.sequenceLoaded.value) "✓ Sequence" else "Load Sequence"
-                )
-            }
-
-            OutlinedButton(
-                onClick = { audioPicker.launch(arrayOf("audio/*")) },
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.onBackground
-                )
-            ) {
-                Text(
-                    text = if (viewModel.audioLoaded.value) "✓ Audio" else "Load Audio"
-                )
-            }
+            Text(
+                text = if (viewModel.sequenceLoaded.value) "✓ Open Sequence" else "Open Sequence"
+            )
         }
 
         Spacer(modifier = Modifier.height(32.dp))
@@ -190,13 +226,80 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
         Spacer(modifier = Modifier.weight(1f))
 
         // Status info
+        val statusText = if (!viewModel.folderConfigured.value) {
+            "Tap ⚙ to set your .smbuddy folder"
+        } else if (!viewModel.sequenceLoaded.value) {
+            "Tap \"Open Sequence\" to load a .smbuddy file"
+        } else if (viewModel.audioLoaded.value) {
+            "Sequence + audio loaded — ready to play!"
+        } else {
+            "Sequence loaded (no audio in bundle)"
+        }
         Text(
-            text = "Load a .smbuddy file and audio to start",
+            text = statusText,
             color = MaterialTheme.colorScheme.outline,
             fontSize = 12.sp,
             textAlign = TextAlign.Center
         )
     }
+}
+
+/**
+ * Settings dialog for configuring the .smbuddy folder location.
+ */
+@Composable
+fun SettingsDialog(
+    folderConfigured: Boolean,
+    currentFolder: String?,
+    onPickFolder: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Settings",
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = ".smbuddy Folder",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                if (folderConfigured && currentFolder != null) {
+                    Text(
+                        text = "Folder set ✓",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        text = "No folder configured",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onPickFolder,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (folderConfigured) "Change Folder" else "Select Folder")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        }
+    )
 }
 
 /**

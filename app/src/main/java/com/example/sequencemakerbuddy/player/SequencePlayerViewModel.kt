@@ -6,13 +6,27 @@ import android.media.MediaPlayer
 import android.net.Uri
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.sequencemakerbuddy.model.BundleParseResult
 import com.example.sequencemakerbuddy.model.SequenceBundle
+import com.example.sequencemakerbuddy.settings.SettingsManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.File
+import java.io.FileOutputStream
+
+/**
+ * Represents a .smbuddy file entry for the file browser.
+ */
+data class SmbuddyFileEntry(
+    val name: String,
+    val uri: Uri,
+    val lastModified: Long
+)
 
 /**
  * ViewModel that manages sequence playback synced with audio.
@@ -44,38 +58,77 @@ class SequencePlayerViewModel : ViewModel() {
     var sequenceLoaded = mutableStateOf(false)
         private set
 
+    // File browser state
+    var smbuddyFiles = mutableStateOf<List<SmbuddyFileEntry>>(emptyList())
+        private set
+    var showFileBrowser = mutableStateOf(false)
+        private set
+    var showSettings = mutableStateOf(false)
+        private set
+    var folderConfigured = mutableStateOf(false)
+        private set
+
     private var mediaPlayer: MediaPlayer? = null
     private var playbackJob: Job? = null
+    private var tempAudioFile: File? = null
 
     /**
-     * Load a .smbuddy sequence bundle from a URI.
+     * Initialize folder state from settings.
      */
-    fun loadSequence(context: Context, uri: Uri) {
+    fun initSettings(context: Context) {
+        val settings = SettingsManager(context)
+        folderConfigured.value = settings.hasFolderConfigured()
+    }
+
+    /**
+     * Load a .smbuddy ZIP bundle from a URI.
+     * Extracts both the sequence JSON and the audio file from the ZIP.
+     */
+    fun loadBundle(context: Context, uri: Uri) {
         try {
+            stop()
+
             val inputStream = context.contentResolver.openInputStream(uri) ?: return
-            val parsed = SequenceBundle.fromInputStream(inputStream)
+            val result: BundleParseResult = SequenceBundle.fromZipInputStream(inputStream)
             inputStream.close()
 
-            bundle.value = parsed
-            projectName.value = parsed.projectName
+            bundle.value = result.bundle
+            projectName.value = result.bundle.projectName
             sequenceLoaded.value = true
 
             // Set initial colors from time 0
             updateBallColors(0)
+
+            // Load audio from the bundle if present
+            if (result.audioBytes != null && result.audioFilename != null) {
+                loadAudioFromBytes(context, result.audioBytes, result.audioFilename)
+            } else {
+                audioLoaded.value = false
+            }
         } catch (e: Exception) {
             e.printStackTrace()
-            projectName.value = "Error loading sequence"
+            projectName.value = "Error loading bundle"
         }
     }
 
     /**
-     * Load an audio file from a URI.
+     * Load audio from raw bytes extracted from the ZIP bundle.
+     * Writes to a temp file since MediaPlayer needs a file/URI.
      */
-    fun loadAudio(context: Context, uri: Uri) {
+    private fun loadAudioFromBytes(context: Context, audioBytes: ByteArray, filename: String) {
         try {
             mediaPlayer?.release()
+
+            // Clean up previous temp file
+            tempAudioFile?.delete()
+
+            // Write audio bytes to a temp file
+            val tempFile = File(context.cacheDir, "smbuddy_audio_$filename")
+            FileOutputStream(tempFile).use { it.write(audioBytes) }
+            tempAudioFile = tempFile
+
             mediaPlayer = MediaPlayer().apply {
-                setDataSource(context, uri)
+                setDataSource(tempFile.absolutePath)
                 prepare()
             }
             audioLoaded.value = true
@@ -83,6 +136,53 @@ class SequencePlayerViewModel : ViewModel() {
             e.printStackTrace()
             audioLoaded.value = false
         }
+    }
+
+    /**
+     * Scan the configured .smbuddy folder for files.
+     */
+    fun refreshFileList(context: Context) {
+        val settings = SettingsManager(context)
+        val folderUriStr = settings.getSmbuddyFolderUri() ?: return
+        val folderUri = Uri.parse(folderUriStr)
+
+        try {
+            val docTree = DocumentFile.fromTreeUri(context, folderUri) ?: return
+            val files = mutableListOf<SmbuddyFileEntry>()
+
+            docTree.listFiles().forEach { doc ->
+                val name = doc.name ?: return@forEach
+                if (name.endsWith(".smbuddy", ignoreCase = true) && doc.isFile) {
+                    files.add(
+                        SmbuddyFileEntry(
+                            name = name,
+                            uri = doc.uri,
+                            lastModified = doc.lastModified()
+                        )
+                    )
+                }
+            }
+
+            smbuddyFiles.value = files
+        } catch (e: Exception) {
+            e.printStackTrace()
+            smbuddyFiles.value = emptyList()
+        }
+    }
+
+    /**
+     * Save the folder URI and take persistent permission.
+     */
+    fun setFolder(context: Context, uri: Uri) {
+        // Take persistent read permission
+        val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+        context.contentResolver.takePersistableUriPermission(uri, flags)
+
+        val settings = SettingsManager(context)
+        settings.setSmbuddyFolderUri(uri.toString())
+        folderConfigured.value = true
+
+        refreshFileList(context)
     }
 
     /**
@@ -157,5 +257,7 @@ class SequencePlayerViewModel : ViewModel() {
         playbackJob?.cancel()
         mediaPlayer?.release()
         mediaPlayer = null
+        tempAudioFile?.delete()
+        tempAudioFile = null
     }
 }

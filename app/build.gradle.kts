@@ -51,6 +51,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
+    implementation("androidx.documentfile:documentfile:1.0.1")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

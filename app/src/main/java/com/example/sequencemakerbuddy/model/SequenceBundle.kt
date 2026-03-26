@@ -3,7 +3,9 @@ package com.example.sequencemakerbuddy.model
 import android.graphics.Color
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.util.zip.ZipInputStream
 
 /**
  * Represents a single ball's color sequence.
@@ -44,6 +46,16 @@ data class BallSequence(
 }
 
 /**
+ * Result of parsing a .smbuddy ZIP bundle.
+ * Contains the sequence data and optionally the raw audio bytes.
+ */
+data class BundleParseResult(
+    val bundle: SequenceBundle,
+    val audioBytes: ByteArray?,
+    val audioFilename: String?
+)
+
+/**
  * Represents the full sequence bundle with all balls.
  */
 data class SequenceBundle(
@@ -54,15 +66,41 @@ data class SequenceBundle(
 ) {
     companion object {
         /**
-         * Parse a .smbuddy JSON file from an InputStream.
+         * Parse a .smbuddy ZIP file from an InputStream.
+         * The ZIP contains sequence.json and optionally an audio file.
+         *
+         * Returns a [BundleParseResult] with the parsed bundle and audio bytes.
          */
-        fun fromInputStream(inputStream: InputStream): SequenceBundle {
-            val jsonString = inputStream.bufferedReader().use { it.readText() }
-            return fromJson(jsonString)
+        fun fromZipInputStream(inputStream: InputStream): BundleParseResult {
+            val zipInput = ZipInputStream(inputStream)
+            var jsonString: String? = null
+            var audioBytes: ByteArray? = null
+            var audioFilename: String? = null
+
+            var entry = zipInput.nextEntry
+            while (entry != null) {
+                val name = entry.name
+                if (name == "sequence.json") {
+                    jsonString = readEntryAsString(zipInput)
+                } else if (name.startsWith("audio.")) {
+                    audioFilename = name
+                    audioBytes = readEntryAsBytes(zipInput)
+                }
+                zipInput.closeEntry()
+                entry = zipInput.nextEntry
+            }
+            zipInput.close()
+
+            if (jsonString == null) {
+                throw IllegalArgumentException("No sequence.json found in .smbuddy bundle")
+            }
+
+            val bundle = fromJson(jsonString)
+            return BundleParseResult(bundle, audioBytes, audioFilename)
         }
 
         /**
-         * Parse a .smbuddy JSON string.
+         * Parse a .smbuddy JSON string (for backward compatibility with v1 format).
          */
         fun fromJson(jsonString: String): SequenceBundle {
             val gson = Gson()
@@ -110,6 +148,20 @@ data class SequenceBundle(
                 refreshRate = refreshRate,
                 balls = balls
             )
+        }
+
+        private fun readEntryAsString(zipInput: ZipInputStream): String {
+            return readEntryAsBytes(zipInput).toString(Charsets.UTF_8)
+        }
+
+        private fun readEntryAsBytes(zipInput: ZipInputStream): ByteArray {
+            val buffer = ByteArray(8192)
+            val output = ByteArrayOutputStream()
+            var len: Int
+            while (zipInput.read(buffer).also { len = it } != -1) {
+                output.write(buffer, 0, len)
+            }
+            return output.toByteArray()
         }
     }
 }
