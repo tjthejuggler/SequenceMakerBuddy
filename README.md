@@ -2,7 +2,7 @@
 
 **Android companion app for [Sequence Maker](../Projects/ltx_guru/sequence_maker)** — play LED juggling ball color sequences synced with music on your phone.
 
-> Last updated: 2026-03-25T17:59-06:00
+> Last updated: 2026-03-25T18:11-06:00
 
 ## What It Does
 
@@ -104,16 +104,20 @@ exporter.export_project("output.smbuddy")
 3. Open Sequence Maker Buddy
 4. Tap **⚙** (settings) → **Select Folder** → pick the folder with your `.smbuddy` files
 5. Tap **Open Sequence** → pick a file from the list (sortable by name or date)
-6. Tap **▶ Play** — balls light up in sync with the music!
+6. Use the **time slider** to scrub to any point in the sequence
+7. Tap **▶ Play** — balls light up in sync with the music!
 
 ## UI Design
 
-The app uses a **greyscale** color scheme — nearly everything is black and white. The only elements rendered in full color are the **3 simulated ball circles**, since seeing their colors is the entire point of the app. This design choice ensures the ball colors pop and are easy to read at a glance.
+The app uses a **greyscale** color scheme — nearly everything is black and white. The only elements rendered in full color are the **3 simulated ball circles**, since seeing their colors is the entire point of the app. This design choice ensures the ball colors pop and are easy to read at a glance. Playback control icons (stop, pause) use plain text glyphs in greyscale to stay consistent with the theme.
+
+A **time slider** sits below the time display, allowing you to scrub to any point in the sequence/song. Dragging the slider seeks both the audio and the sequence position. The total duration is shown at the end of the slider.
 
 The file browser is a popup dialog with a scrollable list of `.smbuddy` files, sortable by **name** or **date**. No separate import buttons — just configure the folder once in settings, then browse and tap to load.
 
 *(Greyscale theme applied 2026-03-25T17:47-06:00)*
 *(ZIP bundle format + folder-based browsing added 2026-03-25T17:59-06:00)*
+*(Time slider + greyscale playback icons added 2026-03-25T18:11-06:00)*
 
 ## Tech Stack
 

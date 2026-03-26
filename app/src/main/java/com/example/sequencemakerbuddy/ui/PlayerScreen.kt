@@ -21,10 +21,14 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -171,6 +175,7 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
 
         // --- Time display ---
         val timeMs = viewModel.currentTimeMs.intValue
+        val totalMs = viewModel.totalDurationMs.intValue
         val seconds = timeMs / 1000
         val millis = (timeMs % 1000) / 10
         Text(
@@ -181,7 +186,49 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // --- Time slider ---
+        val isSeeking = remember { mutableFloatStateOf(-1f) }
+        Slider(
+            value = if (isSeeking.floatValue >= 0f) isSeeking.floatValue
+                    else timeMs.toFloat(),
+            onValueChange = { newValue ->
+                isSeeking.floatValue = newValue
+            },
+            onValueChangeFinished = {
+                viewModel.seekTo(isSeeking.floatValue.toInt())
+                isSeeking.floatValue = -1f
+            },
+            valueRange = 0f..totalMs.toFloat().coerceAtLeast(1f),
+            enabled = viewModel.sequenceLoaded.value,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.onBackground,
+                activeTrackColor = MaterialTheme.colorScheme.onBackground,
+                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
+            )
+        )
+
+        // Total duration label
+        val totalSeconds = totalMs / 1000
+        val totalMillis = (totalMs % 1000) / 10
+        Text(
+            text = String.format(
+                "%d:%02d.%02d",
+                totalSeconds / 60, totalSeconds % 60, totalMillis
+            ),
+            color = MaterialTheme.colorScheme.outline,
+            fontSize = 12.sp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(end = 12.dp),
+            textAlign = TextAlign.End
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // --- Playback controls ---
         Row(
@@ -196,7 +243,7 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
                 ),
                 enabled = viewModel.sequenceLoaded.value
             ) {
-                Text("⏹ Stop", fontSize = 16.sp)
+                Text("■ Stop", fontSize = 16.sp)
             }
 
             if (viewModel.isPlaying.value) {
@@ -207,7 +254,7 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
                         contentColor = MaterialTheme.colorScheme.surface
                     )
                 ) {
-                    Text("⏸ Pause", fontSize = 16.sp)
+                    Text("❚❚ Pause", fontSize = 16.sp)
                 }
             } else {
                 Button(

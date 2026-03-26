@@ -51,6 +51,8 @@ class SequencePlayerViewModel : ViewModel() {
         private set
     var currentTimeMs = mutableIntStateOf(0)
         private set
+    var totalDurationMs = mutableIntStateOf(0)
+        private set
     var projectName = mutableStateOf("No sequence loaded")
         private set
     var audioLoaded = mutableStateOf(false)
@@ -96,6 +98,12 @@ class SequencePlayerViewModel : ViewModel() {
             projectName.value = result.bundle.projectName
             sequenceLoaded.value = true
 
+            // Compute total duration from sequence data (max centisecond key -> ms)
+            val maxCentiseconds = result.bundle.balls
+                .flatMap { it.sortedTimes }
+                .maxOrNull() ?: 0
+            totalDurationMs.intValue = maxCentiseconds * 10
+
             // Set initial colors from time 0
             updateBallColors(0)
 
@@ -132,6 +140,12 @@ class SequencePlayerViewModel : ViewModel() {
                 prepare()
             }
             audioLoaded.value = true
+
+            // Use audio duration if longer than sequence duration
+            val audioDurationMs = mediaPlayer?.duration ?: 0
+            if (audioDurationMs > totalDurationMs.intValue) {
+                totalDurationMs.intValue = audioDurationMs
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             audioLoaded.value = false
@@ -232,6 +246,31 @@ class SequencePlayerViewModel : ViewModel() {
         }
         currentTimeMs.intValue = 0
         updateBallColors(0)
+    }
+
+    /**
+     * Seek to a specific time in milliseconds.
+     * Updates ball colors and audio position.
+     */
+    fun seekTo(timeMs: Int) {
+        val clampedMs = timeMs.coerceIn(0, totalDurationMs.intValue)
+        currentTimeMs.intValue = clampedMs
+        mediaPlayer?.seekTo(clampedMs)
+        updateBallColors(clampedMs / 10)
+
+        // If currently playing, restart the playback loop from the new position
+        if (isPlaying.value) {
+            playbackJob?.cancel()
+            playbackJob = viewModelScope.launch {
+                val startTime = System.currentTimeMillis() - clampedMs
+                while (isActive && isPlaying.value) {
+                    val elapsed = (System.currentTimeMillis() - startTime).toInt()
+                    currentTimeMs.intValue = elapsed
+                    updateBallColors(elapsed / 10)
+                    delay(10)
+                }
+            }
+        }
     }
 
     /**
