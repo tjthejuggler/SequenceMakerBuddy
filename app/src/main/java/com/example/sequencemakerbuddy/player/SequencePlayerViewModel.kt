@@ -561,8 +561,12 @@ class SequencePlayerViewModel : ViewModel() {
         playbackJob?.cancel()
         audioStartJob?.cancel()
         mediaPlayer?.let {
-            if (it.isPlaying) it.stop()
-            it.prepare()
+            try {
+                it.stop()
+                it.prepare()
+            } catch (_: IllegalStateException) {
+                // MediaPlayer was in a state where stop/prepare is invalid (e.g. Idle)
+            }
         }
         currentTimeMs.intValue = 0
         updateBallColors(0)
