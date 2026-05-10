@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,11 +45,8 @@ import com.example.sequencemakerbuddy.player.SequencePlayerViewModel
 import com.example.sequencemakerbuddy.settings.SettingsManager
 
 /**
- * Main player screen with 3 simulated balls and playback controls.
+ * Main player screen with 3 simulated balls, playback controls, audio selection, and delay.
  * The UI is intentionally greyscale so the ball colors stand out.
- *
- * Instead of separate import buttons, uses a settings-configured folder
- * and a file browser popup to select .smbuddy bundles.
  */
 @Composable
 fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifier) {
@@ -59,9 +58,12 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
         if (viewModel.folderConfigured.value) {
             viewModel.refreshFileList(context)
         }
+        if (viewModel.audioFolderConfigured.value) {
+            viewModel.refreshAudioFileList(context)
+        }
     }
 
-    // Folder picker for settings
+    // Folder picker for .smbuddy sequences
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
@@ -71,12 +73,24 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
         }
     }
 
+    // Folder picker for audio files
+    val audioFolderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        uri?.let {
+            viewModel.setAudioFolder(context, it)
+        }
+    }
+
     // Settings dialog
     if (viewModel.showSettings.value) {
         SettingsDialog(
             folderConfigured = viewModel.folderConfigured.value,
             currentFolder = SettingsManager(context).getSmbuddyFolderUri(),
+            audioFolderConfigured = viewModel.audioFolderConfigured.value,
+            currentAudioFolder = SettingsManager(context).getAudioFolderUri(),
             onPickFolder = { folderPicker.launch(null) },
+            onPickAudioFolder = { audioFolderPicker.launch(null) },
             onDismiss = { viewModel.showSettings.value = false }
         )
     }
@@ -93,10 +107,35 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
         )
     }
 
+    // Audio browser dialog
+    if (viewModel.showAudioBrowser.value) {
+        AudioBrowserDialog(
+            files = viewModel.audioFiles.value,
+            onFileSelected = { entry ->
+                viewModel.showAudioBrowser.value = false
+                viewModel.loadAudioFromUri(context, entry.uri)
+            },
+            onDismiss = { viewModel.showAudioBrowser.value = false }
+        )
+    }
+
+    // Add delay label dialog
+    if (viewModel.showAddLabelDialog.value) {
+        AddDelayLabelDialog(
+            currentDelay = viewModel.delaySeconds.floatValue,
+            onConfirm = { name ->
+                viewModel.addDelayLabel(context, name)
+                viewModel.dismissAddLabelDialog()
+            },
+            onDismiss = { viewModel.dismissAddLabelDialog() }
+        )
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -130,26 +169,62 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // --- Open Sequence button ---
-        OutlinedButton(
-            onClick = {
-                if (viewModel.folderConfigured.value) {
-                    viewModel.refreshFileList(context)
-                    viewModel.showFileBrowser.value = true
-                } else {
-                    viewModel.showSettings.value = true
-                }
-            },
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = MaterialTheme.colorScheme.onBackground
-            )
+        // --- Open Sequence + Open Audio buttons ---
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
         ) {
+            OutlinedButton(
+                onClick = {
+                    if (viewModel.folderConfigured.value) {
+                        viewModel.refreshFileList(context)
+                        viewModel.showFileBrowser.value = true
+                    } else {
+                        viewModel.showSettings.value = true
+                    }
+                },
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onBackground
+                )
+            ) {
+                Text(
+                    text = if (viewModel.sequenceLoaded.value) "✓ Sequence" else "Open Sequence"
+                )
+            }
+
+            OutlinedButton(
+                onClick = {
+                    if (viewModel.audioFolderConfigured.value) {
+                        viewModel.refreshAudioFileList(context)
+                        viewModel.showAudioBrowser.value = true
+                    } else {
+                        viewModel.showSettings.value = true
+                    }
+                },
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onBackground
+                )
+            ) {
+                val audioLabel = if (viewModel.audioLoaded.value) {
+                    "✓ Audio"
+                } else {
+                    "Open Audio"
+                }
+                Text(text = audioLabel)
+            }
+        }
+
+        // Audio file name (if loaded)
+        viewModel.audioFileName.value?.let { name ->
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = if (viewModel.sequenceLoaded.value) "✓ Open Sequence" else "Open Sequence"
+                text = "🎵 $name",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp
             )
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         // --- 3 Simulated Balls (these stay in COLOR) ---
         Row(
@@ -171,7 +246,22 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
             )
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- Delay Controls ---
+        DelayControls(
+            delaySeconds = viewModel.delaySeconds.floatValue,
+            delayLabels = viewModel.delayLabels.value,
+            onDelayChange = { viewModel.setDelay(context, it) },
+            onIncrement = { viewModel.incrementDelay(context) },
+            onDecrement = { viewModel.decrementDelay(context) },
+            onApplyLabel = { viewModel.applyDelayLabel(context, it) },
+            onAddLabel = { viewModel.showAddLabelDialog() },
+            onRemoveLabel = { viewModel.removeDelayLabel(context, it) },
+            enabled = viewModel.sequenceLoaded.value
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         // --- Time display ---
         val timeMs = viewModel.currentTimeMs.intValue
@@ -270,17 +360,18 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Status info
         val statusText = if (!viewModel.folderConfigured.value) {
             "Tap ⚙ to set your .smbuddy folder"
         } else if (!viewModel.sequenceLoaded.value) {
-            "Tap \"Open Sequence\" to load a .smbuddy file"
+            "Tap Open Sequence to load a .smbuddy file"
         } else if (viewModel.audioLoaded.value) {
-            "Sequence + audio loaded — ready to play!"
+            val delayStr = formatDelay(viewModel.delaySeconds.floatValue)
+            "Sequence + audio loaded (delay $delayStr) — ready!"
         } else {
-            "Sequence loaded (no audio in bundle)"
+            "Sequence loaded (no audio)"
         }
         Text(
             text = statusText,
@@ -288,17 +379,22 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
             fontSize = 12.sp,
             textAlign = TextAlign.Center
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
 /**
- * Settings dialog for configuring the .smbuddy folder location.
+ * Settings dialog for configuring the .smbuddy folder and audio folder locations.
  */
 @Composable
 fun SettingsDialog(
     folderConfigured: Boolean,
     currentFolder: String?,
+    audioFolderConfigured: Boolean,
+    currentAudioFolder: String?,
     onPickFolder: () -> Unit,
+    onPickAudioFolder: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -312,6 +408,7 @@ fun SettingsDialog(
         },
         text = {
             Column {
+                // .smbuddy folder section
                 Text(
                     text = ".smbuddy Folder",
                     fontWeight = FontWeight.Medium,
@@ -332,12 +429,43 @@ fun SettingsDialog(
                         color = MaterialTheme.colorScheme.error
                     )
                 }
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = onPickFolder,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(if (folderConfigured) "Change Folder" else "Select Folder")
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Audio folder section
+                Text(
+                    text = "Audio Folder",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                if (audioFolderConfigured && currentAudioFolder != null) {
+                    Text(
+                        text = "Folder set ✓",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        text = "No folder configured",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onPickAudioFolder,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (audioFolderConfigured) "Change Audio Folder" else "Select Audio Folder")
                 }
             }
         },

@@ -2,11 +2,13 @@
 
 **Android companion app for [Sequence Maker](../Projects/ltx_guru/sequence_maker)** — play LED juggling ball color sequences synced with music on your phone.
 
-> Last updated: 2026-03-25T18:11-06:00
+> Last updated: 2026-05-10T15:40+01:00
 
 ## What It Does
 
 This app simulates 3 LED juggling balls as colored circles on screen. You configure a folder where your `.smbuddy` files live, browse them from within the app, and hit Play — the ball colors change in sync with the music, exactly as they would on real hardware.
+
+You can also load external audio files from a separate audio folder, and adjust the audio delay to fine-tune synchronization between the sequence and the music.
 
 ## How It Works
 
@@ -22,11 +24,16 @@ This app simulates 3 LED juggling balls as colored circles on screen. You config
                │ transfer .smbuddy to phone
 ┌──────────────▼──────────────────────────┐
 │  Sequence Maker Buddy (Android)         │
-│  ├─ Settings: configure .smbuddy folder │
-│  ├─ File browser: pick from folder      │
+│  ├─ Settings: configure folders         │
+│  │   ├─ .smbuddy folder                │
+│  │   └─ Audio folder                   │
+│  ├─ File browser: pick sequence         │
+│  ├─ Audio browser: pick audio file      │
 │  ├─ SequencePlayerViewModel             │
 │  │   ├─ Extracts JSON + audio from ZIP  │
-│  │   ├─ MediaPlayer (audio from bundle) │
+│  │   ├─ MediaPlayer (audio)             │
+│  │   ├─ Audio delay (±10s)             │
+│  │   ├─ Delay labels (saved presets)    │
 │  │   └─ 100Hz coroutine timer           │
 │  └─ PlayerScreen (3 ball circles)       │
 └─────────────────────────────────────────┘
@@ -65,15 +72,43 @@ The `sequence.json` inside the ZIP:
 - Values are `[R, G, B]` arrays (0-255)
 - Audio is bundled inside the ZIP — no separate file transfer needed
 
+### Audio Delay
+
+The delay slider controls the offset between the sequence and the audio:
+
+- **Positive delay** (0 to +10s): Adds silence before the audio starts. The sequence begins immediately, but the audio track waits. Useful when the audio should start later than the sequence.
+- **Negative delay** (0 to −10s): Skips the beginning of the audio. Both the sequence and audio start together, but the audio begins partway through. Useful when the audio should start earlier than the sequence.
+- **0 delay** (default): Sequence and audio start at the same time.
+
+The delay can be adjusted in 0.05s increments using the +/− buttons, or by dragging the slider.
+
+### Delay Labels
+
+You can save the current delay value with a descriptive label (e.g., "Chorus sync", "Verse offset"). Labels are:
+- Saved per sequence (persisted across sessions)
+- Quickly applied via a dropdown
+- Deletable from the same dropdown
+
+### Per-Sequence Audio Memory
+
+When you open a sequence, the app automatically restores:
+- The last audio file you had open with that sequence
+- The delay setting and saved labels
+
+This means you only need to set up the audio once per sequence — next time you open it, everything is as you left it.
+
 ### Key Files
 
 | File | Purpose |
 |------|---------|
 | `app/.../model/SequenceBundle.kt` | Data model + ZIP/JSON parser for `.smbuddy` files |
-| `app/.../player/SequencePlayerViewModel.kt` | Playback engine: extracts audio from bundle, syncs color updates at 100Hz |
-| `app/.../settings/SettingsManager.kt` | Persists .smbuddy folder location across app sessions |
-| `app/.../ui/PlayerScreen.kt` | Compose UI: settings, file browser trigger, 3 ball circles + play controls |
+| `app/.../model/AudioState.kt` | Delay label + per-sequence audio state data classes |
+| `app/.../player/SequencePlayerViewModel.kt` | Playback engine: audio, delay, labels, file browsing |
+| `app/.../settings/SettingsManager.kt` | Persists folder locations + per-sequence audio state |
+| `app/.../ui/PlayerScreen.kt` | Compose UI: settings, browsers, balls, play controls, delay |
 | `app/.../ui/FileBrowserDialog.kt` | Popup dialog listing .smbuddy files, sortable by name or date |
+| `app/.../ui/AudioBrowserDialog.kt` | Popup dialog listing audio files from the audio folder |
+| `app/.../ui/DelayControls.kt` | Delay slider, increment buttons, label dropdown, add-label dialog |
 | `app/.../MainActivity.kt` | Entry point, wires ViewModel to UI |
 
 ### Exporting from Sequence Maker
@@ -100,12 +135,15 @@ exporter.export_project("output.smbuddy")
 ## Usage
 
 1. Export a `.smbuddy` file from Sequence Maker on your PC (audio is included automatically)
-2. Transfer the single `.smbuddy` file to a folder on your phone
+2. Transfer the `.smbuddy` file to a folder on your phone
 3. Open Sequence Maker Buddy
 4. Tap **⚙** (settings) → **Select Folder** → pick the folder with your `.smbuddy` files
-5. Tap **Open Sequence** → pick a file from the list (sortable by name or date)
-6. Use the **time slider** to scrub to any point in the sequence
-7. Tap **▶ Play** — balls light up in sync with the music!
+5. Optionally, also set an **Audio Folder** in settings (for loading external audio files)
+6. Tap **Open Sequence** → pick a file from the list (sortable by name or date)
+7. Optionally, tap **Open Audio** → pick an audio file (overrides bundle audio)
+8. Adjust the **delay slider** if the audio/sequence timing needs fine-tuning
+9. Use the **time slider** to scrub to any point in the sequence
+10. Tap **▶ Play** — balls light up in sync with the music!
 
 ## UI Design
 
@@ -113,11 +151,14 @@ The app uses a **greyscale** color scheme — nearly everything is black and whi
 
 A **time slider** sits below the time display, allowing you to scrub to any point in the sequence/song. Dragging the slider seeks both the audio and the sequence position. The total duration is shown at the end of the slider.
 
-The file browser is a popup dialog with a scrollable list of `.smbuddy` files, sortable by **name** or **date**. No separate import buttons — just configure the folder once in settings, then browse and tap to load.
+The **delay slider** ranges from −10s to +10s with 0 (no delay) in the center. Increment/decrement buttons adjust by 0.05s. Saved delay labels appear in a dropdown for quick recall.
+
+The file browser is a popup dialog with a scrollable list of `.smbuddy` files, sortable by **name** or **date**. The audio browser similarly lists audio files (mp3, wav, ogg, flac, aac, m4a, wma, opus) from the configured audio folder.
 
 *(Greyscale theme applied 2026-03-25T17:47-06:00)*
 *(ZIP bundle format + folder-based browsing added 2026-03-25T17:59-06:00)*
 *(Time slider + greyscale playback icons added 2026-03-25T18:11-06:00)*
+*(Open Audio + delay slider + delay labels + per-sequence audio memory added 2026-05-10T15:40+01:00)*
 
 ## Tech Stack
 
@@ -126,7 +167,7 @@ The file browser is a popup dialog with a scrollable list of `.smbuddy` files, s
 - **MediaPlayer** for audio playback
 - **Coroutines** for 100Hz timer loop
 - **DocumentFile** + Storage Access Framework for folder browsing
-- **SharedPreferences** for persisting settings
+- **SharedPreferences** for persisting settings and per-sequence audio state
 - Min SDK 26 (Android 8.0+)
 
 ## Building
