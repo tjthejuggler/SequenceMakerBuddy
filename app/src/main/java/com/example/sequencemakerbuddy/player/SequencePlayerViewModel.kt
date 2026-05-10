@@ -113,12 +113,18 @@ class SequencePlayerViewModel : ViewModel() {
     private var externalAudioLoaded = false
 
     /**
-     * Initialize folder state from settings.
+     * Initialize folder state from settings and restore last loaded bundle.
      */
     fun initSettings(context: Context) {
         val settings = SettingsManager(context)
         folderConfigured.value = settings.hasFolderConfigured()
         audioFolderConfigured.value = settings.hasAudioFolderConfigured()
+
+        // Auto-restore the last loaded bundle
+        val lastUri = settings.getLastBundleUri()
+        if (lastUri != null) {
+            loadBundle(context, Uri.parse(lastUri))
+        }
     }
 
     /**
@@ -138,6 +144,9 @@ class SequencePlayerViewModel : ViewModel() {
             projectName.value = result.bundle.projectName
             sequenceLoaded.value = true
             externalAudioLoaded = false
+
+            // Persist the URI so we can auto-load next time
+            SettingsManager(context).setLastBundleUri(uri.toString())
 
             // Compute total duration from sequence data (max centisecond key -> ms)
             val maxCentiseconds = result.bundle.balls

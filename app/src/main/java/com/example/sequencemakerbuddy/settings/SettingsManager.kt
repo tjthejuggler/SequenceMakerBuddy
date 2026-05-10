@@ -18,6 +18,7 @@ class SettingsManager(context: Context) {
         private const val KEY_SMBUDDY_FOLDER_URI = "smbuddy_folder_uri"
         private const val KEY_AUDIO_FOLDER_URI = "audio_folder_uri"
         private const val KEY_AUDIO_STATE_PREFIX = "audio_state_"
+        private const val KEY_LAST_BUNDLE_URI = "last_bundle_uri"
     }
 
     // --- .smbuddy folder ---
@@ -52,6 +53,18 @@ class SettingsManager(context: Context) {
     /** Check if an audio folder has been configured. */
     fun hasAudioFolderConfigured(): Boolean {
         return !getAudioFolderUri().isNullOrEmpty()
+    }
+
+    // --- Last loaded bundle ---
+
+    /** Get the URI of the last successfully loaded .smbuddy bundle, or null. */
+    fun getLastBundleUri(): String? {
+        return prefs.getString(KEY_LAST_BUNDLE_URI, null)
+    }
+
+    /** Save the URI of the last successfully loaded .smbuddy bundle. */
+    fun setLastBundleUri(uri: String) {
+        prefs.edit().putString(KEY_LAST_BUNDLE_URI, uri).apply()
     }
 
     // --- Per-sequence audio state ---
