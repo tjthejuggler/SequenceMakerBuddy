@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +30,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -45,7 +48,8 @@ import com.example.sequencemakerbuddy.player.SequencePlayerViewModel
 import com.example.sequencemakerbuddy.settings.SettingsManager
 
 /**
- * Main player screen with 3 simulated balls, playback controls, audio selection, and delay.
+ * Main player screen with 3 simulated balls, playback controls, audio selection, delay,
+ * and real ball connection management.
  * The UI is intentionally greyscale so the ball colors stand out.
  */
 @Composable
@@ -226,7 +230,17 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // --- 3 Simulated Balls (these stay in COLOR) ---
+        // --- Observe ball-manager state via collectAsState so the UI
+        //     actually recomposes when scanning / discovery / upload state
+        //     changes. Reading StateFlow.value directly does NOT trigger
+        //     Compose recomposition, which is why the scan button used to
+        //     "lag" behind reality.
+        val ballSlots by viewModel.ballManager.ballSlots.collectAsState()
+        val isScanning by viewModel.ballManager.isScanning.collectAsState()
+        val isUploading by viewModel.ballManager.isUploading.collectAsState()
+        val uploadStatus by viewModel.ballManager.uploadStatus.collectAsState()
+
+        // --- 3 Simulated Balls with green ring for connected balls ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -234,19 +248,94 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
         ) {
             BallCircle(
                 color = Color(viewModel.ballColor1.intValue),
-                label = "Ball 1"
+                label = "Ball 1",
+                isConnected = ballSlots.getOrNull(0) != null,
+                connectedIp = ballSlots.getOrNull(0)?.ip
             )
             BallCircle(
                 color = Color(viewModel.ballColor2.intValue),
-                label = "Ball 2"
+                label = "Ball 2",
+                isConnected = ballSlots.getOrNull(1) != null,
+                connectedIp = ballSlots.getOrNull(1)?.ip
             )
             BallCircle(
                 color = Color(viewModel.ballColor3.intValue),
-                label = "Ball 3"
+                label = "Ball 3",
+                isConnected = ballSlots.getOrNull(2) != null,
+                connectedIp = ballSlots.getOrNull(2)?.ip
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // --- Ball connection controls ---
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
+        ) {
+            // Scan for balls button
+            Button(
+                onClick = { viewModel.toggleBallScanning() },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isScanning) {
+                        Color(0xFF4CAF50) // Green when scanning
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    contentColor = if (isScanning) {
+                        Color.White
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    }
+                )
+            ) {
+                Text(
+                    if (isScanning) "📡 Scanning..." else "📡 Scan Balls",
+                    fontSize = 14.sp
+                )
+            }
+
+            // Upload to balls button
+            OutlinedButton(
+                onClick = { viewModel.uploadToBalls() },
+                enabled = viewModel.sequenceLoaded.value &&
+                    ballSlots.any { it != null } &&
+                    !isUploading,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onBackground
+                )
+            ) {
+                Text(
+                    if (isUploading) "⏳ Uploading..." else "⬆ Upload",
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        // Upload status
+        if (uploadStatus.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = uploadStatus,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        // Connected balls count
+        val connectedCount = ballSlots.count { it != null }
+        if (connectedCount > 0) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "$connectedCount ball${if (connectedCount != 1) "s" else ""} connected",
+                color = Color(0xFF4CAF50),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // --- Delay Controls ---
         DelayControls(
@@ -479,16 +568,32 @@ fun SettingsDialog(
 
 /**
  * A single simulated ball rendered as a colored circle with a glow effect.
- * This is the ONE element that stays in full color.
+ * When a real ball is connected, a green ring is shown around it.
  */
 @Composable
-fun BallCircle(color: Color, label: String) {
+fun BallCircle(
+    color: Color,
+    label: String,
+    isConnected: Boolean = false,
+    connectedIp: String? = null
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
                 .size(100.dp)
+                .then(
+                    if (isConnected) {
+                        Modifier.border(
+                            width = 3.dp,
+                            color = Color(0xFF4CAF50), // Green ring for connected
+                            shape = CircleShape
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
                 .shadow(
                     elevation = 16.dp,
                     shape = CircleShape,
@@ -504,5 +609,14 @@ fun BallCircle(color: Color, label: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 12.sp
         )
+        // Show IP address if connected
+        if (isConnected && connectedIp != null) {
+            Text(
+                text = connectedIp,
+                color = Color(0xFF4CAF50),
+                fontSize = 10.sp
+            )
+        }
     }
 }
+

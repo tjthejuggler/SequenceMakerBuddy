@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.sequencemakerbuddy.ball.BallManager
 import com.example.sequencemakerbuddy.model.BundleParseResult
 import com.example.sequencemakerbuddy.model.DelayLabel
 import com.example.sequencemakerbuddy.model.SequenceAudioState
@@ -44,6 +45,7 @@ data class AudioFileEntry(
  * ViewModel that manages sequence playback synced with audio.
  * Updates ball colors at 100Hz (every 10ms) based on the loaded sequence data.
  * Supports audio delay: positive = silence before audio, negative = skip start of audio.
+ * Integrates with real LTX juggling balls via WiFi network.
  */
 class SequencePlayerViewModel : ViewModel() {
 
@@ -103,6 +105,9 @@ class SequencePlayerViewModel : ViewModel() {
     var showAddLabelDialog = mutableStateOf(false)
         private set
 
+    // Ball manager for real ball connection
+    val ballManager = BallManager(viewModelScope)
+
     private var mediaPlayer: MediaPlayer? = null
     private var playbackJob: Job? = null
     private var tempAudioFile: File? = null
@@ -114,8 +119,15 @@ class SequencePlayerViewModel : ViewModel() {
 
     /**
      * Initialize folder state from settings and restore last loaded bundle.
+     * Also attaches the application context to the ball manager so it can
+     * acquire a Wi-Fi MulticastLock during ball discovery (without it the
+     * Wi-Fi chipset filters out the LTX broadcast packets and the scan
+     * appears unreliable).
      */
     fun initSettings(context: Context) {
+        // Attach context for MulticastLock acquisition during scanning.
+        ballManager.attachContext(context)
+
         val settings = SettingsManager(context)
         folderConfigured.value = settings.hasFolderConfigured()
         audioFolderConfigured.value = settings.hasAudioFolderConfigured()
@@ -440,17 +452,46 @@ class SequencePlayerViewModel : ViewModel() {
         refreshFileList(context)
     }
 
+    // --- Ball management ---
+
+    /**
+     * Toggle ball scanning on/off.
+     */
+    fun toggleBallScanning() {
+        if (ballManager.isScanning.value) {
+            ballManager.stopScanning()
+        } else {
+            ballManager.startScanning()
+        }
+    }
+
+    /**
+     * Upload the current sequence to all connected balls.
+     * Generates 3 PRG files (one per ball timeline) and uploads each.
+     */
+    fun uploadToBalls() {
+        val b = bundle.value ?: return
+        viewModelScope.launch {
+            ballManager.uploadSequences(b)
+        }
+    }
+
     // --- Playback ---
 
     /**
      * Start synchronized playback of audio + sequence.
      * Handles delay: positive = audio starts later, negative = audio skips ahead.
+     * Also sends PLAY command to all connected real balls.
      */
     fun play() {
         if (bundle.value == null) return
         if (isPlaying.value) return
 
         isPlaying.value = true
+
+        // Send PLAY to all connected real balls (on IO dispatcher)
+        viewModelScope.launch { ballManager.playAllBalls() }
+
         val delayMs = (delaySeconds.floatValue * 1000).toInt()
 
         if (audioLoaded.value && mediaPlayer != null) {
@@ -491,12 +532,16 @@ class SequencePlayerViewModel : ViewModel() {
 
     /**
      * Pause playback.
+     * Also sends STOP command to all connected real balls.
      */
     fun pause() {
         isPlaying.value = false
         playbackJob?.cancel()
         audioStartJob?.cancel()
         mediaPlayer?.pause()
+
+        // Send STOP to all connected real balls (on IO dispatcher)
+        viewModelScope.launch { ballManager.stopAllBalls() }
     }
 
     /**
@@ -509,6 +554,7 @@ class SequencePlayerViewModel : ViewModel() {
 
     /**
      * Stop and reset to beginning.
+     * Also sends STOP command to all connected real balls.
      */
     fun stop() {
         isPlaying.value = false
@@ -520,6 +566,9 @@ class SequencePlayerViewModel : ViewModel() {
         }
         currentTimeMs.intValue = 0
         updateBallColors(0)
+
+        // Send STOP to all connected real balls (on IO dispatcher)
+        viewModelScope.launch { ballManager.stopAllBalls() }
     }
 
     /**
@@ -601,5 +650,6 @@ class SequencePlayerViewModel : ViewModel() {
         mediaPlayer = null
         tempAudioFile?.delete()
         tempAudioFile = null
+        ballManager.clearAll()
     }
 }
