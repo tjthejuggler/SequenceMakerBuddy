@@ -11,6 +11,9 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.sequencemakerbuddy.ball.BallManager
+import com.example.sequencemakerbuddy.ball.PrgGenerator
+import com.example.sequencemakerbuddy.calibration.CalibrationEngine
+import com.example.sequencemakerbuddy.calibration.CalibrationPreset
 import com.example.sequencemakerbuddy.model.BundleParseResult
 import com.example.sequencemakerbuddy.model.DelayLabel
 import com.example.sequencemakerbuddy.model.SequenceAudioState
@@ -105,8 +108,37 @@ class SequencePlayerViewModel : ViewModel() {
     var showAddLabelDialog = mutableStateOf(false)
         private set
 
+    // --- Calibration ---
+    val calibration = CalibrationEngine(viewModelScope)
+    var showCalibrationDialog = mutableStateOf(false)
+        private set
+    var calibrationPresets = mutableStateOf<List<CalibrationPreset>>(emptyList())
+        private set
+
+    // Whether a calibration PRG has been uploaded to the balls in this
+    // session (resets when the dialog is reopened). Drives a "✓ uploaded"
+    // indicator in the calibration dialog.
+    var calibrationPrgUploaded = mutableStateOf(false)
+        private set
+
+    // Human-readable status line for the calibration upload / test buttons
+    // (e.g. "No balls connected", "Uploading...", "Upload complete ✓").
+    var calibrationBallStatus = mutableStateOf("")
+        private set
+
     // Ball manager for real ball connection
     val ballManager = BallManager(viewModelScope)
+
+    init {
+        // Wire the calibration engine's ball-trigger hook so the visual phase
+        // (and verification) of calibration sends the SAME PLAY UDP frame to
+        // all connected LTX balls that normal sequence playback uses. This
+        // lets the user calibrate against the physical ball flashes instead
+        // of (or in addition to) the on-screen flash square.
+        calibration.onBallTrigger = {
+            viewModelScope.launch { ballManager.playAllBalls() }
+        }
+    }
 
     private var mediaPlayer: MediaPlayer? = null
     private var playbackJob: Job? = null
@@ -131,6 +163,9 @@ class SequencePlayerViewModel : ViewModel() {
         val settings = SettingsManager(context)
         folderConfigured.value = settings.hasFolderConfigured()
         audioFolderConfigured.value = settings.hasAudioFolderConfigured()
+
+        // Load device-wide calibration presets
+        calibrationPresets.value = settings.getCalibrationPresets()
 
         // Auto-restore the last loaded bundle
         val lastUri = settings.getLastBundleUri()
@@ -401,6 +436,139 @@ class SequencePlayerViewModel : ViewModel() {
      */
     fun dismissAddLabelDialog() {
         showAddLabelDialog.value = false
+    }
+
+    // --- Calibration ---
+
+    /**
+     * Open the calibration wizard. Stops normal playback first so audio
+     * resources don't fight over the speaker.
+     */
+    fun openCalibrationDialog() {
+        safeStop()
+        calibration.armAudioPhase()
+        calibrationPrgUploaded.value = false
+        calibrationBallStatus.value = ""
+        showCalibrationDialog.value = true
+    }
+
+    /**
+     * Generate and upload the calibration PRG (a sequence that flashes the
+     * balls white at the same schedule as the on-screen visual phase) to
+     * every connected ball. The user runs this once before starting the
+     * visual phase if they want to react to the physical balls.
+     */
+    fun uploadCalibrationToBalls() {
+        val ips = ballManager.getConnectedIps()
+        if (ips.isEmpty()) {
+            calibrationBallStatus.value = "No balls connected"
+            return
+        }
+        calibrationBallStatus.value = "Uploading calibration PRG to ${ips.size} ball(s)..."
+        viewModelScope.launch {
+            val prgBytes = PrgGenerator.generateCalibrationPrg(
+                flashTimesMs = CalibrationEngine.STIMULUS_TIMES_MS,
+                flashDurationMs = CalibrationEngine.VISUAL_FLASH_DURATION_MS,
+                totalDurationMs = CalibrationEngine.PHASE_DURATION_MS
+            )
+            val results = ballManager.uploadCalibrationPrg(prgBytes)
+            val ok = results.values.count { it }
+            val total = results.size
+            calibrationPrgUploaded.value = ok > 0 && ok == total
+            calibrationBallStatus.value = when {
+                total == 0 -> "No balls connected"
+                ok == total -> "Calibration PRG uploaded to all $total ball(s) ✓"
+                ok == 0 -> "Upload failed for all $total ball(s)"
+                else -> "Uploaded to $ok/$total ball(s) — some failed"
+            }
+        }
+    }
+
+    /**
+     * Send a PLAY command to all connected balls right now, so the user can
+     * verify that the start signal reaches the balls and that the uploaded
+     * calibration PRG plays as expected. Identical to the PLAY frame sent
+     * during normal sequence playback.
+     */
+    fun testCalibrationStartSignal() {
+        val ips = ballManager.getConnectedIps()
+        if (ips.isEmpty()) {
+            calibrationBallStatus.value = "No balls connected"
+            return
+        }
+        calibrationBallStatus.value = "Sending start signal to ${ips.size} ball(s)..."
+        viewModelScope.launch {
+            val results = ballManager.playAllBalls()
+            val ok = results.values.count { it }
+            calibrationBallStatus.value = if (ok == results.size) {
+                "Start signal sent ✓ — watch the ball(s) flash"
+            } else {
+                "Start signal: $ok/${results.size} ball(s) ok"
+            }
+        }
+    }
+
+    /**
+     * Close the calibration wizard and tear down any in-progress run.
+     */
+    fun dismissCalibrationDialog() {
+        calibration.cancel()
+        showCalibrationDialog.value = false
+    }
+
+    /**
+     * Save the just-completed calibration as a named device-wide preset.
+     * Refreshes the in-memory preset list so the dropdown updates.
+     */
+    fun saveCalibrationPreset(context: Context, name: String) {
+        if (name.isBlank()) return
+        val preset = CalibrationPreset(
+            name = name.trim(),
+            delaySeconds = calibration.computedDelaySeconds.value,
+            audioPerceivedMs = calibration.audioPerceivedMs.intValue,
+            visualPerceivedMs = calibration.visualPerceivedMs.intValue,
+            createdAtMs = System.currentTimeMillis()
+        )
+        val settings = SettingsManager(context)
+        settings.saveCalibrationPreset(preset)
+        calibrationPresets.value = settings.getCalibrationPresets()
+        // Apply it to the current sequence right away so the user can verify.
+        setDelay(context, preset.delaySeconds)
+    }
+
+    /**
+     * Apply a calibration preset by name: copies its delaySeconds onto the
+     * current sequence's delay.
+     */
+    fun applyCalibrationPreset(context: Context, name: String) {
+        val preset = calibrationPresets.value.find { it.name == name } ?: return
+        setDelay(context, preset.delaySeconds)
+    }
+
+    /**
+     * Remove a calibration preset by name and refresh the list.
+     */
+    fun removeCalibrationPreset(context: Context, name: String) {
+        val settings = SettingsManager(context)
+        settings.removeCalibrationPreset(name)
+        calibrationPresets.value = settings.getCalibrationPresets()
+    }
+
+    /**
+     * Start an inline verification run from the main screen, using the
+     * currently applied delaySeconds. Stops any normal playback first so
+     * the verify audio can play without conflict.
+     */
+    fun startInlineVerification(context: Context) {
+        safeStop()
+        calibration.startVerification(context, delaySeconds.floatValue)
+    }
+
+    /**
+     * Cancel an in-progress inline verification (e.g. user tapped Stop).
+     */
+    fun cancelInlineVerification() {
+        calibration.cancel()
     }
 
     // --- Sequence folder management ---

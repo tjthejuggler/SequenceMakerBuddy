@@ -336,6 +336,47 @@ class BallManager(private val scope: CoroutineScope) {
     }
 
     /**
+     * Upload a single calibration PRG to every connected ball.
+     * The same byte stream is sent to each ball so they flash in unison
+     * during the calibration visual phase.
+     *
+     * @param prgBytes Pre-generated calibration PRG (see [PrgGenerator.generateCalibrationPrg]).
+     * @param filenameOnBall Filename to store on the balls (default "Calibration.prg").
+     * @return Map of ball IP -> upload success/failure.
+     */
+    suspend fun uploadCalibrationPrg(
+        prgBytes: ByteArray,
+        filenameOnBall: String = "Calibration.prg"
+    ): Map<String, Boolean> = withContext(Dispatchers.IO) {
+        _isUploading.value = true
+        val results = mutableMapOf<String, Boolean>()
+        try {
+            val ips = getConnectedIps()
+            if (ips.isEmpty()) {
+                _uploadStatus.value = "No balls connected to upload to"
+                return@withContext results
+            }
+            for (ip in ips) {
+                _uploadStatus.value = "Uploading calibration to $ip..."
+                val ok = LtxBallClient.uploadPrg(ip, prgBytes, filenameOnBall)
+                results[ip] = ok
+                Log.i(TAG, "Calibration upload $ip: ${if (ok) "OK" else "FAILED"}")
+            }
+            _uploadStatus.value = if (results.all { it.value }) {
+                "Calibration upload complete ✓"
+            } else {
+                "Calibration upload completed with errors"
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "uploadCalibrationPrg error: ${e.message}")
+            _uploadStatus.value = "Calibration upload error: ${e.message}"
+        } finally {
+            _isUploading.value = false
+        }
+        results
+    }
+
+    /**
      * Send PLAY command to all connected balls.
      * Must be called from a coroutine (runs on IO dispatcher).
      */

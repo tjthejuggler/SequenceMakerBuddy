@@ -60,6 +60,59 @@ object PrgGenerator {
     }
 
     /**
+     * Generate a calibration PRG that flashes bright white at each of
+     * [flashTimesMs] (relative to PLAY=T0), with each flash lasting
+     * [flashDurationMs], and the ball staying dark otherwise. Total
+     * sequence length is [totalDurationMs].
+     *
+     * Used by the calibration wizard so the physical LED balls can flash
+     * in sync with the on-screen flash square. The user can then choose to
+     * react to either the phone's screen flash OR the ball flashes, and
+     * name their resulting delay preset accordingly.
+     *
+     * Time units inside the PRG are centiseconds (100 Hz), matching the
+     * rest of the buddy format.
+     */
+    fun generateCalibrationPrg(
+        flashTimesMs: List<Int>,
+        flashDurationMs: Int,
+        totalDurationMs: Int,
+        defaultPixels: Int = 4
+    ): ByteArray {
+        require(flashTimesMs.isNotEmpty()) { "flashTimesMs is empty" }
+        require(flashDurationMs > 0) { "flashDurationMs must be > 0" }
+        require(totalDurationMs > 0) { "totalDurationMs must be > 0" }
+
+        // Convert ms -> centiseconds.
+        val msToCs = { ms: Int -> (ms / 10).coerceAtLeast(1) }
+        val totalCs = msToCs(totalDurationMs)
+        val flashCs = msToCs(flashDurationMs)
+
+        val black = Triple(0, 0, 0)
+        val white = Triple(255, 255, 255)
+        val segments = mutableListOf<Segment>()
+
+        // Build segments: dark gap -> flash -> dark gap -> flash ... -> tail dark.
+        var cursorCs = 0
+        for (t in flashTimesMs) {
+            val flashStartCs = msToCs(t)
+            val gapCs = flashStartCs - cursorCs
+            if (gapCs > 0) {
+                segments.add(Segment(gapCs, black, defaultPixels))
+                cursorCs += gapCs
+            }
+            segments.add(Segment(flashCs, white, defaultPixels))
+            cursorCs += flashCs
+        }
+        val tailCs = totalCs - cursorCs
+        if (tailCs > 0) {
+            segments.add(Segment(tailCs, black, defaultPixels))
+        }
+
+        return generatePrgFromSegments(splitLongSegments(segments), defaultPixels)
+    }
+
+    /**
      * Convert a BallSequence to a list of solid color segments.
      * Each consecutive pair of time keys forms one segment.
      * The last segment gets a default duration of 100 (1 second).

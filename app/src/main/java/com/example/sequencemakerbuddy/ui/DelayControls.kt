@@ -34,23 +34,35 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.sequencemakerbuddy.calibration.CalibrationPreset
 import com.example.sequencemakerbuddy.model.DelayLabel
 
 /**
  * Delay controls: slider from -10 to +10 seconds, increment/decrement buttons,
- * and a dropdown to apply saved delay labels.
+ * a dropdown to apply saved per-sequence delay labels, a dropdown of
+ * device-wide calibration presets, and a button that opens the
+ * calibration wizard.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DelayControls(
     delaySeconds: Float,
     delayLabels: List<DelayLabel>,
+    calibrationPresets: List<CalibrationPreset>,
     onDelayChange: (Float) -> Unit,
     onIncrement: () -> Unit,
     onDecrement: () -> Unit,
     onApplyLabel: (String) -> Unit,
     onAddLabel: () -> Unit,
     onRemoveLabel: (String) -> Unit,
+    onApplyCalibrationPreset: (String) -> Unit,
+    onRemoveCalibrationPreset: (String) -> Unit,
+    onOpenCalibration: () -> Unit,
+    onStartVerify: () -> Unit,
+    onCancelVerify: () -> Unit,
+    isVerifying: Boolean,
+    verifyFlashOn: Boolean,
+    verifyStimuliDelivered: Int,
     enabled: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -207,6 +219,150 @@ fun DelayControls(
             modifier = Modifier.padding(horizontal = 8.dp)
         ) {
             Text("💾 Save delay as label", fontSize = 12.sp)
+        }
+
+        // ---- Device-wide calibration presets section ----
+        // Always visible (even with no sequence loaded) — presets describe
+        // a hardware situation, not a sequence-specific tweak.
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "Calibration Presets",
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+
+        if (calibrationPresets.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+
+            var presetsExpanded by remember { mutableStateOf(false) }
+
+            ExposedDropdownMenuBox(
+                expanded = presetsExpanded,
+                onExpandedChange = { presetsExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = "🎯 Apply preset…  (${calibrationPresets.size} saved)",
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = true,
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = presetsExpanded)
+                    },
+                    modifier = Modifier
+                        .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+
+                ExposedDropdownMenu(
+                    expanded = presetsExpanded,
+                    onDismissRequest = { presetsExpanded = false }
+                ) {
+                    calibrationPresets.forEach { preset ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "${preset.name} (${formatDelay(preset.delaySeconds)})",
+                                        fontSize = 14.sp
+                                    )
+                                    TextButton(
+                                        onClick = { onRemoveCalibrationPreset(preset.name) }
+                                    ) {
+                                        Text(
+                                            "✕",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                            },
+                            onClick = {
+                                onApplyCalibrationPreset(preset.name)
+                                presetsExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+        } else {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "No presets yet — run calibration to create one.",
+                color = MaterialTheme.colorScheme.outline,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+        }
+
+        // ---- Calibrate + Verify buttons (side by side) ----
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onOpenCalibration,
+                enabled = !isVerifying,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onBackground
+                ),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("🎯 Calibrate", fontSize = 13.sp)
+            }
+            OutlinedButton(
+                onClick = { if (isVerifying) onCancelVerify() else onStartVerify() },
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = if (isVerifying)
+                        MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onBackground
+                ),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    if (isVerifying) "■ Stop Verify" else "🔁 Verify Sync",
+                    fontSize = 13.sp
+                )
+            }
+        }
+
+        // ---- Inline verification status + flash square ----
+        // Shown only while the engine is in RUNNING_VERIFY so the user can
+        // watch the flash and listen to the beep at the same time without
+        // leaving the main screen.
+        if (isVerifying) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "🔁 Verifying with delay ${formatDelay(delaySeconds)}  •  beep $verifyStimuliDelivered / 3",
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            // Use the same FlashSquare component the calibration dialog uses
+            // so the visual stimulus is identical between calibration and
+            // verification — what the user calibrated against is what they
+            // verify against.
+            FlashSquare(flashOn = verifyFlashOn)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Tweak the slider above mid-verify if needed — your changes apply on the NEXT verification run.",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.outline,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }

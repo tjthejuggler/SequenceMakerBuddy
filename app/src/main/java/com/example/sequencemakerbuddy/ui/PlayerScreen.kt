@@ -135,6 +135,14 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
         )
     }
 
+    // Calibration wizard dialog
+    if (viewModel.showCalibrationDialog.value) {
+        CalibrationDialog(
+            viewModel = viewModel,
+            onDismiss = { viewModel.dismissCalibrationDialog() }
+        )
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -338,15 +346,31 @@ fun PlayerScreen(viewModel: SequencePlayerViewModel, modifier: Modifier = Modifi
         Spacer(modifier = Modifier.height(16.dp))
 
         // --- Delay Controls ---
+        // The "is verifying" state is derived from the calibration engine's
+        // phase so the inline flash square appears precisely while the
+        // RUNNING_VERIFY phase is active.
+        val calibrationPhase = viewModel.calibration.phase.value
+        val isVerifying = calibrationPhase ==
+            com.example.sequencemakerbuddy.calibration.CalibrationEngine.Phase.RUNNING_VERIFY
+
         DelayControls(
             delaySeconds = viewModel.delaySeconds.floatValue,
             delayLabels = viewModel.delayLabels.value,
+            calibrationPresets = viewModel.calibrationPresets.value,
             onDelayChange = { viewModel.setDelay(context, it) },
             onIncrement = { viewModel.incrementDelay(context) },
             onDecrement = { viewModel.decrementDelay(context) },
             onApplyLabel = { viewModel.applyDelayLabel(context, it) },
             onAddLabel = { viewModel.showAddLabelDialog() },
             onRemoveLabel = { viewModel.removeDelayLabel(context, it) },
+            onApplyCalibrationPreset = { viewModel.applyCalibrationPreset(context, it) },
+            onRemoveCalibrationPreset = { viewModel.removeCalibrationPreset(context, it) },
+            onOpenCalibration = { viewModel.openCalibrationDialog() },
+            onStartVerify = { viewModel.startInlineVerification(context) },
+            onCancelVerify = { viewModel.cancelInlineVerification() },
+            isVerifying = isVerifying,
+            verifyFlashOn = viewModel.calibration.flashOn.value,
+            verifyStimuliDelivered = viewModel.calibration.stimuliDelivered.intValue,
             enabled = viewModel.sequenceLoaded.value
         )
 

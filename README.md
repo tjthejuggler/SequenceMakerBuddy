@@ -2,7 +2,7 @@
 
 **Android companion app for [Sequence Maker](../Projects/ltx_guru/sequence_maker)** — play LED juggling ball color sequences synced with music on your phone, with support for connecting to real LTX juggling balls over WiFi.
 
-> Last updated: 2026-05-10T17:44+01:00
+> Last updated: 2026-05-11T09:25+01:00
 
 ## What It Does
 
@@ -114,6 +114,30 @@ You can save the current delay value with a descriptive label (e.g., "Chorus syn
 - Quickly applied via a dropdown
 - Deletable from the same dropdown
 
+### Audio Sync Calibration
+
+Different audio output paths have wildly different latencies — phone speakers might be ~50ms behind, while Bluetooth headphones can be 150–250ms behind, and real LTX balls have their own WiFi+firmware delay. The **calibration wizard** measures whatever situation you're actually in and produces a delay value that compensates for it.
+
+**Two-phase tap test:**
+
+1. **Audio phase**: The app plays a synthesized WAV with 6 short, sharp beeps at known timestamps (1.5s spacing). The **first beep is an explicit warm-up** — the UI tells you NOT to tap on it. You tap a big button the moment you *hear* each of the remaining 5 beeps. The app records `tap_time − scheduled_beep_time` for each beep, drops the warm-up, and takes the median of the rest. This is your **audio perceived latency** (audio output latency + your reaction time).
+2. **Visual phase**: The app emits 6 bright flashes on a square in the dialog at the same schedule. Same warm-up rule — first flash is "don't tap, just watch". You tap the moment you *see* each of the remaining 5 flashes. Same math gives you **visual perceived latency** (frame rendering latency + your reaction time).
+3. **Verification**: A **"🔁 Verify Sync"** button on the **main screen** (next to the Calibrate button) plays 3 synchronized beep+flash pairs using the currently-applied delay so you can confirm the result is in sync. The inline flash square appears right below the delay slider while verifying. The workflow is: run calibration → save preset → close dialog → fine-tune with the slider → tap Verify → repeat until perfect. Verification lives on the main screen (not inside the dialog) so the slider and the verify run are visible at the same time.
+
+Because your reaction time is roughly the same in both phases, it cancels out:
+
+```
+delaySeconds = (visual_perceived_ms − audio_perceived_ms) / 1000
+```
+
+For Bluetooth headphones, where audio is heard *later* than the flash is seen, this comes out **negative** → the audio is started earlier (skips ahead) by that amount, which compensates exactly.
+
+**You decide what to look at**: the on-screen ball circles, or the real LTX balls if they're connected. The code doesn't know or care — name the saved preset accordingly (`"AirPods Pro"`, `"Phone speaker + real balls"`, etc.).
+
+**Calibration presets** are stored device-wide (independent of any particular sequence) and appear in their own **"Calibration Presets"** section in the delay controls (always visible, with a placeholder message when empty). Tap a preset to apply its delay to the currently-loaded sequence. The preset dropdown is **not gated on having a sequence loaded** — presets describe a hardware situation, not a sequence-specific tweak.
+
+The beep WAV is generated in-memory at runtime by [`CalibrationToneGenerator`](app/src/main/java/com/example/sequencemakerbuddy/calibration/CalibrationToneGenerator.kt:1) (no asset bundling) so the schedule and the tone are guaranteed to stay in sync.
+
 ### Per-Sequence Audio Memory
 
 When you open a sequence, the app automatically restores:
@@ -136,7 +160,11 @@ This means you only need to set up the audio once per sequence — next time you
 | `app/.../ui/PlayerScreen.kt` | Compose UI: settings, browsers, balls, play controls, delay, ball controls |
 | `app/.../ui/FileBrowserDialog.kt` | Popup dialog listing .smbuddy files, sortable by name or date |
 | `app/.../ui/AudioBrowserDialog.kt` | Popup dialog listing audio files from the audio folder |
-| `app/.../ui/DelayControls.kt` | Delay slider, increment buttons, label dropdown, add-label dialog |
+| `app/.../ui/DelayControls.kt` | Delay slider, increment buttons, label dropdown, calibration preset dropdown, calibrate button |
+| `app/.../ui/CalibrationDialog.kt` | Two-phase calibration wizard UI (audio tap test + visual tap test + save preset) |
+| `app/.../calibration/CalibrationToneGenerator.kt` | In-memory WAV synthesis with beeps at known timestamps |
+| `app/.../calibration/CalibrationEngine.kt` | State machine that runs the audio + visual phases, records taps, computes median latency, derives final delay |
+| `app/.../calibration/CalibrationPreset.kt` | Data class for a named device-wide calibration preset |
 | `app/.../MainActivity.kt` | Entry point, wires ViewModel to UI |
 
 ### Exporting from Sequence Maker
@@ -197,6 +225,10 @@ The **delay slider** ranges from −10s to +10s with 0 (no delay) in the center.
 *(Time slider + greyscale playback icons added 2026-03-25T18:11-06:00)*
 *(Open Audio + delay slider + delay labels + per-sequence audio memory added 2026-05-10T15:40+01:00)*
 *(Real ball connection: discovery, PRG generation, upload, play/stop added 2026-05-10T16:40+01:00)*
+*(Audio sync calibration wizard + device-wide presets added 2026-05-10T18:25+01:00)*
+*(Calibration: explicit warm-up banner, in-dialog "Test Sync" verification, always-visible presets section added 2026-05-11T09:00+01:00)*
+*(Verification moved out of the calibration dialog onto the main screen — single "🔁 Verify Sync" button next to Calibrate, with inline flash square so you can fine-tune the slider and verify in one place — 2026-05-11T09:15+01:00)*
+*(Calibration now drives the physical LTX balls: dedicated "📤 Upload PRG" and "🔔 Test Start" buttons in the calibration dialog, and the visual / verify phases automatically send the same PLAY UDP frame used by normal playback so the balls flash in sync — pick whichever you watch (phone screen vs. balls) and name the preset accordingly — 2026-05-11T09:25+01:00)*
 
 ## Tech Stack
 
